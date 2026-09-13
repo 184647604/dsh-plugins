@@ -1,0 +1,37 @@
+{
+  "name": "dsh-file-transfer",
+  "version": "0.1.0",
+  "description": "文件传输子插件(plugin-center master 的官方子插件):dsh web 后端已装插件中心主插件 dsh-plugin-center 后,本插件提供 /api/transfer.write(原始字节流式落盘)与 /api/transfer.describe(能力探测)——把手机上的文件写进后端文件系统。刻意不复用官方 /api/session/uploadFileBinary:该端点走 attachment 存储,其 ensureDurableHome 会逐级 fsync 到文件系统根,在 Termux 上命中 /data/data 触发 EACCES,上传必然失败。零运行时依赖。可被插件中心安装/启停/卸载。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin-center",
+    "file-transfer",
+    "upload",
+    "sub-plugin",
+    "cordis"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

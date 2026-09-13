@@ -1,0 +1,38 @@
+{
+  "name": "dsh-mcp-admin",
+  "version": "0.2.0",
+  "description": "MCP 服务器管理子插件(plugin-center master 的官方子插件):dsh web 后端已装插件中心主插件 dsh-plugin-center 后,本插件提供 /api/mcp.*(list/add/update/remove/setEnabled/restart)管理 MCP 服务器实例——loader 热生效 + cordis.patch.yml 托管块持久化 + 可选令牌。零运行时依赖(js-yaml vendored)。可被插件中心安装/启停/卸载。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "vendor",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin-center",
+    "mcp",
+    "mcp-server",
+    "sub-plugin",
+    "cordis"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
