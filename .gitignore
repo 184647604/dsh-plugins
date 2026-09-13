@@ -1,0 +1,5 @@
+# 打包产物走 GitHub Release，不进版本库
+*.tgz
+node_modules/
+package-lock.json
+.pnpm-store/

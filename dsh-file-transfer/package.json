@@ -1,0 +1,38 @@
+{
+  "name": "dsh-file-transfer",
+  "version": "0.1.1",
+  "description": "dsh web 的文件传输插件:原始字节流式落盘端点,把手机文件写入后端。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin-center",
+    "file-transfer",
+    "upload",
+    "sub-plugin",
+    "cordis"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "title": "文件传输"
+  }
+}

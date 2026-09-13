@@ -1,0 +1,38 @@
+{
+  "name": "dsh-plugin-center",
+  "version": "0.1.4",
+  "description": "dsh web 插件中心主插件(管理桥):远程查看、启停、卸载、安装后端插件。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin-center",
+    "plugin",
+    "management",
+    "bridge",
+    "cordis"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "title": "插件中心"
+  }
+}
