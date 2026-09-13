@@ -1,0 +1,65 @@
+# dsh-plugins
+
+DeepSeek Harness 插件集。装到**任意** `dsh web` 后端上即可用。
+
+## 三个插件的关系
+
+```
+dsh-plugin-center   ← 管理桥（受保护、常驻）
+    │  plugins.list / setEnabled / remove
+    │  center.describe / center.catalog
+    ├─ dsh-mcp-admin      ← 子插件（普通、可启停/卸载）
+    │     mcp.list / add / update / remove / setEnabled / restart
+    └─ dsh-file-transfer  ← 子插件（普通、可启停/卸载）
+          transfer.write / describe / list / archive
+```
+
+**只有 `dsh-plugin-center` 是必装的**——它是唯一的管理桥，装上之后另外两个（以及以后所有的子插件）
+都可以由它统一安装/启停/卸载。子插件都是**零运行时依赖**的，`dsh-mcp-admin` 自带 vendored 的 js-yaml。
+
+## 安装
+
+先决条件：目标主机有 `node >= 18` 和 **`pnpm`**（`dsh plugin add` 是把参数转发给 pnpm 的）。
+
+```sh
+# 管理桥（必装）
+dsh plugin --profile web add \
+  https://github.com/184647604/dsh-plugins/releases/download/v0.1.1/dsh-plugin-center-0.1.1.tgz
+
+# 子插件（按需）
+dsh plugin --profile web add \
+  https://github.com/184647604/dsh-plugins/releases/download/v0.1.1/dsh-mcp-admin-0.2.0.tgz
+
+dsh plugin --profile web add \
+  https://github.com/184647604/dsh-plugins/releases/download/v0.1.1/dsh-file-transfer-0.1.0.tgz
+```
+
+装完**重启一次 `dsh web`**（首次要靠 profile 的 bundle 层把它带起来）。之后的启停/卸载**免重启**。
+
+## ⚠️ 不要用 `dsh plugin add dsh-plugin-center` 装
+
+npm 上已经存在一个**同名的别人的包**（作者 `gh503`，2026-08-22 发布）。那是一个**客户端**插件
+（在设置页加一张卡片、搜 npm 上的 dsh 插件），和本仓库的**服务端管理桥**完全不是一回事。
+执行不带 URL 的 `dsh plugin add dsh-plugin-center` 会装上他的包，而且不会报错。
+
+装本仓库的包**一律带上完整的 release URL**。
+
+## 为什么用 tarball URL 而不是 `git+https://...`
+
+本仓库是**三个包并列的 monorepo**，仓库根目录没有 `package.json`。
+`dsh plugin add git+https://github.com/184647604/dsh-plugins.git` 指向的是仓库根，
+不是一个可安装的包，**会失败**。用 release 挂出来的 `.tgz` 是每个包独立、版本固定、内容不可变的产物。
+
+## 从源码更新
+
+改完插件后，在项目根目录跑：
+
+```sh
+tools/publish-plugins.sh
+```
+
+它会重新镜像三个插件、打包、提交、推送，并把新版本的 tgz 传成 release 资产。
+
+## License
+
+MIT
