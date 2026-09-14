@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-center",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "dsh web 插件中心主插件(管理桥):远程查看、启停、卸载、安装后端插件。",
   "type": "module",
   "main": "lib/index.js",
