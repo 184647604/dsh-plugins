@@ -28,10 +28,12 @@
 import {
   closeSync,
   existsSync,
+  lstatSync,
   fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   unlinkSync,
@@ -443,7 +445,7 @@ async function verifyPluginDir(dir, expectedName) {
 
 export default {
   name: PLUGIN_ID,
-  inject: ['webServer', 'loader'],
+  inject: ['webServer', 'loader', 'skills'],
 
   apply(ctx, config = {}) {
     const webServer = ctx.webServer;
@@ -959,6 +961,7 @@ export default {
         capabilities: [
           'plugins.list', 'plugins.setEnabled', 'plugins.remove',
           'plugins.install', 'center.describe', 'center.catalog',
+          'skills.managed', 'skills.read', 'skills.save', 'skills.setEnabled', 'skills.remove',
           'center.restart',
         'center.supervisor',
         ],
@@ -1300,8 +1303,204 @@ export default {
         },
       };
     };
+    // ---------- skills.* — 工作目录下技能文件的读写（列表走官方 skills/list） ----------
+
+    /**
+     * **列表不需要这里做**：官方已有 `skills/list`（@deepseek-ai/dsh-api-session-controller 的
+     * sessionSkillCatalog 服务），按 sessionId 解析出 agent scope，返回真实的合并目录
+     * { name, description, whenToUse?, modelInvocable }。客户端应该用它 —— 跨后端可用，
+     * 也不依赖本插件。
+     *
+     * 这里**刻意不提供** list/get：技能目录是按 scope 分层的（ctx.skills 内部的
+     * ScopedLayers），不带 scope 调用得到的是空列表 —— 插件手里没有 agent，也就没有 scope，
+     * 硬做只会得到一个永远返回空的端点。这个坑值得写下来，别再踩。
+     *
+     * 插件负责的是另一件事：**受管技能文件的读写**。技能是文件，写和删没有官方路由，
+     * 只能落在文件系统上。范围严格限定在 <cwd>/.dsh/skills/ 之内：
+     *   · 用户全局根（$DSH_HOME/skills、~/.agents/skills）和内置根一律只读
+     *   · 删除只删这一个受管目录，绝不碰其它根
+     * 历史的坑：客户端曾有过一段「同步时删掉所有不在本地列表里的技能目录」的逻辑，
+     * 那会把手工创建和 AI 现场创建的技能一并清掉 —— 所以这里只按名字删单个目录。
+     */
+    const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+    /** 请求里的 cwd；缺省退回进程 cwd（远程调用必须显式带，否则会写到后端自己的工作目录）。 */
+    const skillCwd = (payload) => {
+      const raw = payload && typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
+      return raw.length > 0 ? resolve(raw) : process.cwd();
+    };
+
+    /** App 唯一被允许读写的技能根。 */
+    /**
+     * 项目根 = 从 cwd 往上找最近的含 `.git` 的祖先，找不到就回退 cwd。
+     *
+     * **必须和官方 @deepseek-ai/dsh-skill-filesystem 的 findProjectRoot 完全一致**：
+     * 技能目录是 `<projectRoot>/.dsh/skills`，**不是** `<cwd>/.dsh/skills`。
+     *
+     * 这里踩过一个很难查的坑：PC 上某个祖先目录有 `.git`，于是 projectRoot 解析到了
+     * 那个祖先；技能写在 cwd 下就永远发现不了 —— 症状是「skills.save 报成功、managed
+     * 也列得出来，但列表里没有」。而往 `~/.dsh/skills` 写反而立刻可见（因为那恰好等于
+     * 该 projectRoot 的 `.dsh/skills`）。Android 侧没有 `.git`，会回退到 cwd，所以本地
+     * 一直是好的 —— 这也是这个坑只在 PC 上暴露的原因。
+     */
+    const findProjectRootSync = (cwd) => {
+      const start = resolve(cwd);
+      let current = start;
+      for (;;) {
+        if (existsSync(join(current, '.git'))) return current;
+        const parent = dirname(current);
+        if (parent === current) return start;
+        current = parent;
+      }
+    };
+    const managedSkillRoot = (cwd) => join(findProjectRootSync(cwd), '.dsh', 'skills');
+
+    const skillMissing = (name) => ({
+      ok: false,
+      error: { code: 'skills/not-found', message: '找不到技能「' + name + '」' },
+    });
+
+    /** 受管技能文件路径；名字不合法直接返回 null。 */
+    const managedSkillFile = (cwd, name) => {
+      if (!SKILL_NAME.test(name)) return null;
+      return join(managedSkillRoot(cwd), name, 'SKILL.md');
+    };
+
+    const opSkillsRead = async (payload) => {
+      const cwd = skillCwd(payload);
+      const name = String((payload && payload.name) || '').trim();
+      const file = managedSkillFile(cwd, name);
+      if (file === null) return skillMissing(name);
+      if (!existsSync(file)) return skillMissing(name);
+      const text = readFileSync(file, 'utf8');
+      return { ok: true, value: { name, file, dir: dirname(file), editable: true, text } };
+    };
+
+    const opSkillsSave = async (payload) => {
+      const cwd = skillCwd(payload);
+      const name = String((payload && payload.name) || '').trim();
+      const description = String((payload && payload.description) || '').trim();
+      const content = String((payload && payload.content) || '');
+      const whenToUse = String((payload && payload.whenToUse) || '').trim();
+      if (!SKILL_NAME.test(name)) {
+        return {
+          ok: false,
+          error: {
+            code: 'skills/invalid-name',
+            message: '技能名只能用小写字母、数字和连字符（如 dsh-upgrade-triage）',
+          },
+        };
+      }
+      if (description.length === 0) {
+        // 描述决定模型何时调用这个技能，空描述等于技能永远不生效 —— 宁可报错也别写个废技能。
+        return {
+          ok: false,
+          error: { code: 'skills/invalid-description', message: '描述不能为空：模型靠它判断何时使用该技能' },
+        };
+      }
+      const dir = join(managedSkillRoot(cwd), name);
+      const file = join(dir, 'SKILL.md');
+      const lines = ['---', 'name: ' + name, 'description: ' + description.replace(/\r?\n/g, ' ')];
+      if (whenToUse.length > 0) lines.push('whenToUse: ' + whenToUse.replace(/\r?\n/g, ' '));
+      // 保存时保留「已禁用」状态，否则编辑一次就把开关重置了。
+      if (payload && payload.disabled === true) lines.push('disable-model-invocation: true');
+      lines.push('---');
+      const body = content.trim();
+      const text = body.length > 0 ? lines.join('\n') + '\n\n' + body + '\n' : lines.join('\n') + '\n';
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(file, text, 'utf8');
+      // 目录缓存必须显式失效：文件监听是异步的，紧接着 list 会拿到旧快照。
+      ctx.skills.invalidateCache?.();
+      return { ok: true, value: { name, dir, file, editable: true } };
+    };
+
+    /** 受管根里现有哪些技能 —— 客户端据此标出「可编辑」，其余显示为只读。 */
+    const opSkillsManaged = async (payload) => {
+      const cwd = skillCwd(payload);
+      const root = managedSkillRoot(cwd);
+      let names = [];
+      if (existsSync(root)) {
+        try {
+          names = readdirSync(root, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && SKILL_NAME.test(e.name))
+            .map((e) => e.name)
+            .sort();
+        } catch {
+          names = [];
+        }
+      }
+      return { ok: true, value: { cwd, root, names } };
+    };
+
+    /**
+     * 启用/禁用 = 在 frontmatter 里加/去 `disable-model-invocation: true`。
+     *
+     * 刻意用**调用策略**而不是改名或搬走文件：技能仍在目录里、仍会出现在目录列表中并带
+     * modelInvocable=false，用户看得见"我禁用了它"；改名藏起来会让人以为技能丢了。
+     * 这个键名是 dsh 的规范名（parseInvocationPolicy 明确拒绝旧的
+     * disableModelInvocation / modelInvocable 写法）。
+     */
+    const opSkillsSetEnabled = async (payload) => {
+      const cwd = skillCwd(payload);
+      const name = String((payload && payload.name) || '').trim();
+      const enabled = !payload || payload.enabled !== false;
+      const file = managedSkillFile(cwd, name);
+      if (file === null) return skillMissing(name);
+      if (!existsSync(file)) return skillMissing(name);
+      const lines = readFileSync(file, 'utf8').split('\n');
+      if (lines.length === 0 || lines[0].trim() !== '---') {
+        return { ok: false, error: { code: 'skills/no-frontmatter', message: 'SKILL.md 开头没有 frontmatter' } };
+      }
+      let end = -1;
+      for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === '---') { end = i; break; }
+      }
+      if (end < 0) {
+        return { ok: false, error: { code: 'skills/no-frontmatter', message: 'frontmatter 缺少结束的 ---' } };
+      }
+      // 先摘掉已有的同名键（避免重复），再按需追加。
+      const head = lines.slice(1, end).filter((l) => !/^\s*disable-model-invocation\s*:/.test(l));
+      if (!enabled) head.push('disable-model-invocation: true');
+      const next = ['---'].concat(head, ['---']).concat(lines.slice(end + 1)).join('\n');
+      writeFileSync(file, next, 'utf8');
+      ctx.skills.invalidateCache?.();
+      return { ok: true, value: { name, file, enabled } };
+    };
+
+    const opSkillsRemove = async (payload) => {
+      const cwd = skillCwd(payload);
+      const name = String((payload && payload.name) || '').trim();
+      if (!SKILL_NAME.test(name)) {
+        return { ok: false, error: { code: 'skills/invalid-name', message: '技能名不合法' } };
+      }
+      const dir = join(managedSkillRoot(cwd), name);
+      if (!existsSync(dir)) return { ok: true, value: { removed: false, dir, reason: '目录不存在' } };
+      // 兜底：确认目标就是 <cwd>/.dsh/skills/<name>，绝不越界删。
+      if (dirname(resolve(dir)) !== managedSkillRoot(cwd)) {
+        return { ok: false, error: { code: 'skills/out-of-scope', message: '只允许删除工作目录下的技能' } };
+      }
+      const stat = lstatSync(dir);
+      if (stat.isSymbolicLink()) {
+        // 是链接就只解链，绝不递归跟进到别处。
+        unlinkSync(dir);
+        ctx.skills.invalidateCache?.();
+        return { ok: true, value: { removed: true, dir, symlink: true } };
+      }
+      if (!stat.isDirectory()) {
+        return { ok: false, error: { code: 'skills/not-a-directory', message: dir + ' 不是目录' } };
+      }
+      rmSync(dir, { recursive: true, force: true });
+      ctx.skills.invalidateCache?.();
+      return { ok: true, value: { removed: true, dir } };
+    };
+
     const OPERATIONS = {
       'plugins.list': opPluginList,
+      'skills.managed': opSkillsManaged,
+      'skills.read': opSkillsRead,
+      'skills.setEnabled': opSkillsSetEnabled,
+      'skills.save': opSkillsSave,
+      'skills.remove': opSkillsRemove,
       'plugins.setEnabled': opPluginSetEnabled,
       'plugins.remove': opPluginRemove,
       'plugins.install': opPluginInstall,
