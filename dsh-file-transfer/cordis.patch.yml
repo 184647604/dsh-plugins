@@ -1,0 +1,14 @@
+# Bundle patch layer for dsh-file-transfer — the file-transfer SUB-plugin of the
+# plugin-center master (dsh-bridge-center). Installed via:
+#
+#   dsh plugin --profile web add dsh-file-transfer
+#
+# `dsh plugin add` reconciles dsh.profile.bundles against installed packages and,
+# seeing the `dsh.bundle.patch` declaration in package.json, appends
+# dsh-file-transfer to the bundle stack. The profile boot then merges THIS patch
+# — a single `insert` of the plugin row — over the composed tree.
+#
+# 非保护插件：插件中心可自由启停/卸载（受保护的只有管理桥本身与 @deepseek-ai/* 系统核心）。
+- insert:
+    - id: dsh-file-transfer
+      name: 'dsh-file-transfer'

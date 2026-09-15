@@ -1,0 +1,12 @@
+# Bundle patch layer for dsh-mcp-admin — the MCP management SUB-plugin of the
+# plugin-center master (dsh-bridge-center). Installed via:
+#
+#   dsh plugin --profile web add dsh-mcp-admin
+#
+# `dsh plugin add` reconciles dsh.profile.bundles against installed packages and,
+# seeing the `dsh.bundle.patch` declaration in package.json, appends dsh-mcp-admin
+# to the bundle stack. The profile boot then merges THIS patch — a single
+# `insert` of the plugin row — over the composed tree.
+- insert:
+    - id: dsh-mcp-admin
+      name: 'dsh-mcp-admin'

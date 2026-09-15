@@ -1,0 +1,39 @@
+{
+  "name": "dsh-mcp-admin",
+  "version": "0.2.1",
+  "description": "dsh web 的 MCP 服务器管理插件:增删改查、启停、重启,loader 热生效。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "vendor",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin-center",
+    "mcp",
+    "mcp-server",
+    "sub-plugin",
+    "cordis"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "title": "MCP 管理"
+  }
+}

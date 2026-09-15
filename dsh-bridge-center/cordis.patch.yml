@@ -1,0 +1,11 @@
+# Bundle patch layer for dsh-bridge-center (the plugin-center master). Installed via:
+#
+#   dsh plugin --profile web add dsh-bridge-center
+#
+# `dsh plugin add` reconciles dsh.profile.bundles against installed packages
+# and, seeing the `dsh.bundle.patch` declaration in package.json, appends
+# dsh-bridge-center to the bundle stack. The profile boot then merges THIS
+# patch — a single `insert` of the plugin row — over the composed tree.
+- insert:
+    - id: dsh-bridge-center
+      name: 'dsh-bridge-center'
