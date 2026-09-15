@@ -381,11 +381,15 @@ export {
 
 export default {
   name: PLUGIN_ID,
-  inject: ['webServer', 'loader'],
+  // connection 是认证的唯一来源 —— 缺了它本插件的路由就是裸奔的，见 gate() 的长注释。
+  // 声明成硬依赖（而不是 ctx.get 后判空）是为了**失败即不可用**：宁可插件不挂载，
+  // 也不能在没有认证层的情况下把 /api 端点暴露出去。
+  inject: ['webServer', 'loader', 'connection'],
 
   apply(ctx, config = {}) {
     const webServer = ctx.webServer;
     const loader = ctx.loader;
+    const connection = ctx.connection;
 
     const TOKEN = String(config.token || process.env.DSH_MCP_ADMIN_TOKEN || '').trim();
     // 显式 config.profile 优先;否则用启动 --profile;最后回退 web。
@@ -448,6 +452,33 @@ export default {
         json(res, 405, { ok: false, error: 'method not allowed' });
         return false;
       }
+
+      // ---------- 认证：必须显式做，且必须用官方那一套 ----------
+      //
+      // 下面挂路由的地方用 kind:'exact' 注册 /api/<method>。dsh 的认证不在路由框架里，
+      // 而是挂在 client-connection 注册的 kind:'prefix' /api 路由的 handler 第一行
+      // （`connection.requestRejection(req)`）。**exact 先于 prefix 匹配**，那条 prefix
+      // 路由根本轮不到执行 —— 插件路由实际上是裸奔的。
+      //
+      // 实测后果（修复前）：不带任何 cookie 直接 POST /api/mcp.setEnabled 等端点会被
+      // 正常受理。本插件能改 MCP 服务器配置，等同于在目标机器上增删可执行的外部进程。
+      //
+      // 所以这里把官方的判定原样搬进来，判定范围与官方 /api 路由完全一致、不多不少：
+      //   · Host/Origin 围栏不通过 → 403
+      //   · 无有效 cookie 会话      → 401
+      // 手机 App 走 OkHttp 的 CookieJar 自动带 cookie，不受影响。
+      //
+      // 下面那段 sameOrigin() 是**保留的纵深防御**，它单独并不构成认证：
+      // 它只在请求带 Origin 头时才校验，curl / 脚本 / App 不带 Origin，一律放行。
+      const rejection = connection.requestRejection(req);
+      if (rejection !== undefined) {
+        json(res, rejection, {
+          ok: false,
+          error: rejection === 401 ? 'authentication required' : 'forbidden',
+        });
+        return false;
+      }
+
       if (!sameOrigin(req)) {
         json(res, 403, { ok: false, error: 'untrusted origin' });
         return false;

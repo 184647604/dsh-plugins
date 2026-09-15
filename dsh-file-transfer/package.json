@@ -1,6 +1,6 @@
 {
   "name": "dsh-file-transfer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "dsh web 的文件传输插件:原始字节流式落盘端点,把手机文件写入后端。",
   "type": "module",
   "main": "lib/index.js",

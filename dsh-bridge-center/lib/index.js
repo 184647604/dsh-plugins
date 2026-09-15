@@ -445,11 +445,15 @@ async function verifyPluginDir(dir, expectedName) {
 
 export default {
   name: PLUGIN_ID,
-  inject: ['webServer', 'loader', 'skills'],
+  // connection 是认证的唯一来源 —— 缺了它本插件的路由就是裸奔的，见 gate() 的长注释。
+  // 声明成硬依赖（而不是 ctx.get 后判空）是为了**失败即不可用**：宁可插件不挂载，
+  // 也不能在没有认证层的情况下把 /api 端点暴露出去。
+  inject: ['webServer', 'loader', 'skills', 'connection'],
 
   apply(ctx, config = {}) {
     const webServer = ctx.webServer;
     const loader = ctx.loader;
+    const connection = ctx.connection;
 
     const TOKEN = String(config.token || process.env.DSH_PLUGIN_CENTER_TOKEN || process.env.DSH_MCP_ADMIN_TOKEN || '').trim();
     // 显式 config.profile 优先;否则用启动 --profile;最后回退 web。
@@ -562,6 +566,36 @@ export default {
         json(res, 405, { ok: false, error: 'method not allowed' });
         return false;
       }
+
+      // ---------- 认证：必须显式做，且必须用官方那一套 ----------
+      //
+      // 下面挂路由的地方（"HTTP mount" 段）用 kind:'exact' 注册 /api/<method>。
+      // dsh 的认证不在路由框架里，而是挂在 client-connection 注册的 kind:'prefix'
+      // /api 路由的 handler 第一行（`connection.requestRejection(req)`）。
+      // **exact 先于 prefix 匹配**，那条 prefix 路由根本轮不到执行 —— 本插件
+      // 之前那行注释把这件事写成了「win without touching the connection layer」，
+      // 机制说对了，没意识到「不碰 connection 层」= 连认证一起跳过。
+      //
+      // 实测后果（修复前）：不带任何 cookie 直接 POST /api/center.supervisor
+      // 就能**明文拿到 supervisor token**，进而控制 dsh web 的启停；
+      // /api/plugins.install 等同理（装包会跑 pnpm 生命周期脚本）。全程无需凭据。
+      //
+      // 所以这里把官方的判定原样搬进来，判定范围与官方 /api 路由完全一致、不多不少：
+      //   · Host/Origin 围栏不通过 → 403
+      //   · 无有效 cookie 会话      → 401
+      // 手机 App 走 OkHttp 的 CookieJar 自动带 cookie，不受影响。
+      //
+      // 下面那段 sameOrigin() 是**保留的纵深防御**，它单独并不构成认证：
+      // 它只在请求带 Origin 头时才校验，curl / 脚本 / App 不带 Origin，一律放行。
+      const rejection = connection.requestRejection(req);
+      if (rejection !== undefined) {
+        json(res, rejection, {
+          ok: false,
+          error: rejection === 401 ? 'authentication required' : 'forbidden',
+        });
+        return false;
+      }
+
       if (!sameOrigin(req)) {
         json(res, 403, { ok: false, error: 'untrusted origin' });
         return false;
@@ -1522,6 +1556,11 @@ export default {
     // official /api prefix channel, so these endpoints win without touching
     // the connection layer; the envelope/rpcId discipline mirrors the official
     // unary carrier so clients need no adaptation.
+    //
+    // ⚠️ 「不碰 connection 层」有个必须自己补上的代价：官方那层的认证也一起跳过了。
+    // 所以下面每个 handler 的第一件事都是 `gate()`，而 gate() 里显式调用了
+    // `connection.requestRejection()`。**改这里时必须保证 gate() 仍是第一步**，
+    // 且新增端点也要走 gate —— 漏一个就是无认证端点。
     for (const [method, operation] of Object.entries(OPERATIONS)) {
       const path = `/api/${method}`;
       ctx.effect(
