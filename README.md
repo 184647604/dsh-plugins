@@ -2,7 +2,7 @@
 
 DeepSeek Harness 插件集。装到**任意** `dsh web` 后端上即可用。
 
-## 三个插件的关系
+## 四个插件的关系
 
 ```
 dsh-bridge-center   ← 管理桥（受保护、常驻）
@@ -10,12 +10,17 @@ dsh-bridge-center   ← 管理桥（受保护、常驻）
     │  center.describe / center.catalog
     ├─ dsh-mcp-admin      ← 子插件（普通、可启停/卸载）
     │     mcp.list / add / update / remove / setEnabled / restart
-    └─ dsh-file-transfer  ← 子插件（普通、可启停/卸载）
-          transfer.write / describe / list / archive
+    ├─ dsh-file-transfer  ← 子插件（普通、可启停/卸载）
+    │     transfer.write / describe / list / archive
+    └─ dsh-ssh-link       ← 子插件（普通、可启停/卸载）
+          ssh.targets / test / exec / pair / discover / keys / doctor…
 ```
 
-**只有 `dsh-bridge-center` 是必装的**——它是唯一的管理桥，装上之后另外两个（以及以后所有的子插件）
+**只有 `dsh-bridge-center` 是必装的**——它是唯一的管理桥，装上之后另外三个（以及以后所有的子插件）
 都可以由它统一安装/启停/卸载。子插件都是**零运行时依赖**的，`dsh-mcp-admin` 自带 vendored 的 js-yaml。
+
+⚠️ `dsh-ssh-link` **原名 `dsh-ssh-bridge`**，2026-09 改名：那个名字在 npm 上是**别人的**
+OpenWRT 路由器 SSH 桥，裸包名安装会静默装上别人的代码。
 
 ## 安装
 
@@ -50,7 +55,7 @@ dsh plugin --profile web add \
 
 ## 为什么用 tarball URL 而不是 `git+https://...`
 
-本仓库是**三个包并列的 monorepo**，仓库根目录没有 `package.json`。
+本仓库是**四个包并列的 monorepo**，仓库根目录没有 `package.json`。
 `dsh plugin add git+https://github.com/184647604/dsh-plugins.git` 指向的是仓库根，
 不是一个可安装的包，**会失败**。用 release 挂出来的 `.tgz` 是每个包独立、版本固定、内容不可变的产物。
 
@@ -62,7 +67,7 @@ dsh plugin --profile web add \
 tools/publish-plugins.sh
 ```
 
-它会重新镜像三个插件、打包、提交、推送，并把新版本的 tgz 传成 release 资产。
+它会重新镜像四个插件、打包、提交、推送，并把新版本的 tgz 传成 release 资产。
 
 ## License
 

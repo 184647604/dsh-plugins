@@ -96,6 +96,12 @@ const SUBPLUGIN_CATALOG = [
     title: '文件传输',
     description: '文件传输:把手机上的文件写入后端文件系统',
   },
+  {
+    package: 'dsh-ssh-link',
+    role: 'ssh',
+    title: 'SSH 桥',
+    description: 'SSH 桥:把远端机器当本机用 —— 跑命令、把远端 dsh 注册成 subagent 后端',
+  },
 ];
 
 /** 允许远程安装的包名白名单（复用子插件目录，避免第二份清单漂移）。 */
@@ -1046,6 +1052,20 @@ export default {
       if (env.NSSM_EXE || env.NSSM_CONFIGURATION || env.NSSM_SERVICE_NAME) return 'nssm';
       if (env.SUPERVISOR_ENABLED || env.SUPERVISOR_PROCESS_NAME) return 'supervisor';
       if (env.DSH_SUPERVISOR) return String(env.DSH_SUPERVISOR);
+
+      // ppid===1 只在**真有 init 会重启服务**的平台上才成立。
+      //
+      // Termux 上这条是**错的**:Android 的 PID 1 是 `/system/bin/init`(second_stage),
+      // 它根本不认识 `dsh web`,更不会把它拉回来。实测本机后端 ppid 就是 1。
+      // 于是 center.restart 会走 supervisor-exit 分支 → process.exit(0) →
+      // **后端永久消失**,而且用户拿到的提示是"约 10 秒后自动重连"。
+      //
+      // 判据用 `process.platform !== 'win32'` 挡不住这个:Android 报的是 `android`。
+      // 所以显式排除,让 Termux 落到 self-reexec(那条会真的把新进程拉起来)。
+      const isTermux = Boolean(env.TERMUX_VERSION) || env.PREFIX?.includes?.('com.termux') ||
+        process.platform === 'android';
+      if (isTermux) return env.DSH_SUPERVISOR ? String(env.DSH_SUPERVISOR) : null;
+
       if (process.platform !== 'win32' && process.ppid === 1) return 'init';
       return null;
     };

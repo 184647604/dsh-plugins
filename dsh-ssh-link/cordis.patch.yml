@@ -1,0 +1,94 @@
+# Bundle patch layer for dsh-ssh-link — 一个**纯客户端**的 SSH 插件
+# （远程执行命令 + 把远端 dsh headless 当作 subagent 后端）。安装：
+#
+#   dsh plugin --profile web add dsh-ssh-link
+#
+# `dsh plugin add` 会把本包对进 dsh.profile.bundles；package.json 里声明了
+# `dsh.bundle.patch`，profile 启动时就会把**这份** patch 合到组合树上。
+#
+# ⚠️ 别用裸包名装。本插件原名 dsh-ssh-bridge，**那个名字在 npm 上被别人占了**，
+# 裸名会静默装成别人的包 —— 所以 2026-09 改名为 dsh-ssh-link（已确认无人占用）。
+# 本项目一律用 GitHub Release 的 tgz 直链安装（见 README）。上面那行只是说明
+# patch 是怎么被挂上的。
+#
+# ── 这个插件做什么、不做什么 ────────────────────────────────────────────────
+#
+# **只做客户端**：它用系统里的 `ssh` 主动连出去，因此只需要这台机器有 ssh
+# **客户端**。它
+#   · 不监听端口
+#   · 不装、不启动、不检查 sshd
+#   · 不读写任何 authorized_keys
+#   · 不认识"配对"这个概念
+#
+# 所以「别人怎么连到我」完全不是这个插件的事。要手机操作 PC，就在这台机器上
+# 加一条指向 PC 的 target；PC 那边只要有一个正常跑着的 sshd 就够了。
+#
+# 这一行**只注册能力**（ssh_exec 工具、provider、/api/ssh.* 路由）。
+# 想让模型拿到「委派给远端」的工具 `subagent_ssh`，还要在 **agent preset** 里
+# 加一行 dsh-tool-subagent 指向这里的 provider —— 这是框架的既定分工：
+# provider 注册在 host 组合里（进程单例，名字只能注册一次），
+# 而每个 agent 可见的委派工具在 preset 层。范例见
+# @deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml 里
+# subagent / subagent_fork / subagent_codex / subagent_claude_code 四行并列的写法。
+#
+# ── ⚠️ 装进 profile 时：给 config 用「id 定向覆盖」，别再写一遍 insert ──────
+#
+# `dsh plugin add` 会把本插件加进 profile 的 `dsh.profile.bundles`，而**本文件**
+# （包里这份）的 insert 负责建那一条 loader entry。若在 profile 的 patch 里再写
+# 一次 insert，就会出现两个同 id 的 entry，后端**直接起不来**：
+#
+#     duplicate loader entry id: dsh-ssh-link
+#
+# 这是实测踩到的。正确写法（在 profile 的 cordis.patch.yml 里）：
+#
+#     - id: dsh-ssh-link
+#       config:
+#         providerName: ssh
+#
+# 一句话：**insert 归包里这份，profile 只管覆盖 config。**
+
+- insert:
+    - id: dsh-ssh-link
+      name: 'dsh-ssh-link'
+      config:
+        providerName: ssh
+
+        # ── targets：静态目标（可选）──────────────────────────────────────
+        #
+        # 目标有**两个来源**，静态配置只是其中之一：
+        #
+        #   1. 这里的 `targets` —— 只读，改它要重启后端
+        #   2. `ssh.targets.add` 路由写入的动态目标 —— 立刻生效，持久化在
+        #      `statePath` 指向的 JSON 里。App 侧边栏「SSH 连接」面板走的就是这条。
+        #
+        # 也就是说**什么都不配也能用**：在面板里填任意 SSH 地址即可，
+        # 不要求对端装了本插件、也不要求它在 hosts.json 里。配置里的目标在面板里
+        # 是只读的（路由会拒绝删除它们，避免"删了又出现"的困惑）。
+        #
+        # 下面把「PC」作为范例留着，取消注释并改 host 就能用：
+        # targets:
+        #   - name: pc
+        #     host: 100.x.y.z        # Tailscale / 局域网 IP
+        #     port: 22
+        #     user: sun
+        #     dsh: dsh               # 远端 dsh 的可执行文件名
+        #     profile: headless
+        #
+        # 注意**别再默认指向 127.0.0.1:8022** —— 那需要这台机器自己跑 sshd，
+        # 而本插件既然是纯客户端，环回目标就是个自我指涉、几乎不会成功的配置。
+        targets: []
+
+        # 缺省目标。省略时用 targets 的第一条；面板里选中的那条也会写进这里。
+        # defaultTarget: pc
+
+        # ── 文件位置（都有合理默认值，一般不用配）──────────────────────
+        #
+        # home: 覆盖 $HOME —— 决定去哪找 ~/.ssh/id_ed25519（本插件自己的身份密钥）。
+        # home: /data/data/com.termux/files/home
+
+        # statePath: 动态目标的持久化文件。默认 <dshHome>/ssh-link/targets.json
+        # statePath: /data/data/com.termux/files/home/.dsh/ssh-link/targets.json
+
+        # ── 超时 ────────────────────────────────────────────────────────
+        # timeoutMs: 120000           # ssh.exec 单次命令
+        # delegateTimeoutMs: 600000   # 委派给远端 dsh 的任务
