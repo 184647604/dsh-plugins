@@ -1,6 +1,6 @@
 {
   "name": "dsh-ssh-link",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "dsh 的 SSH 桥:把远端机器当本机用 —— ssh_exec 跑任意命令,并把远端 dsh headless 注册成 subagent 后端。",
   "type": "module",
   "main": "lib/index.js",

@@ -65,6 +65,14 @@ EACCES: permission denied, open '/data/data'
  "defaultRoot":"/storage/emulated/0","tokenRequired":false}
 ```
 
+### `POST /api/transfer.mkdir`
+
+建目录，让 App 能在浏览时「新建文件夹」。参数走**旧协议信封**（和 `transfer.list` 一样），
+**不是** query string。
+
+> 这里踩过一次坑：照 `transfer.write` 写成了读 `searchParams`，但 `write` 之所以用 query
+> 是因为它同时收原始字节体，两者不能类比。
+
 ### `POST /api/transfer.list`
 
 列举**后端上任意绝对目录**，标准一元信封，`payload` 为 `{"path":"<绝对目录>","limit"?:N}`：
@@ -126,6 +134,11 @@ EACCES: permission denied, open '/data/data'
 
 注：符号链接**按目标类型**回报（`/sdcard` 这类链接否则会变成进不去的 `other`），
 断链回报为 `other`。
+
+### `POST /api/transfer.archive`
+
+把后端上的绝对目录打成压缩包下载。浏览用的是工作区相对路径（后端自己解析），
+而 `transfer.archive` 要**绝对目录**，两者不能混用。
 
 ## 安装
 

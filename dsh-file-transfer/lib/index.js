@@ -72,7 +72,7 @@ import { URL } from 'node:url';
 import { createGzip } from 'node:zlib';
 
 const PLUGIN_ID = 'dsh-file-transfer';
-const VERSION = '0.2.1';
+const VERSION = '0.2.2';
 
 /** 8 GiB — a safety rail, not a product limit; override with config.maxBytes. */
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024 * 1024;

@@ -11,9 +11,9 @@ dsh-bridge-center   ← 管理桥（受保护、常驻）
     ├─ dsh-mcp-admin      ← 子插件（普通、可启停/卸载）
     │     mcp.list / add / update / remove / setEnabled / restart
     ├─ dsh-file-transfer  ← 子插件（普通、可启停/卸载）
-    │     transfer.write / describe / list / archive
+    │     transfer.write / mkdir / list / describe / archive
     └─ dsh-ssh-link       ← 子插件（普通、可启停/卸载）
-          ssh.targets / test / exec / pair / discover / keys / doctor…
+          ssh.targets / test / exec / info / doctor / targets.add / targets.remove
 ```
 
 **只有 `dsh-bridge-center` 是必装的**——它是唯一的管理桥，装上之后另外三个（以及以后所有的子插件）
@@ -29,21 +29,21 @@ OpenWRT 路由器 SSH 桥，裸包名安装会静默装上别人的代码。
 ```sh
 # 管理桥（必装）
 dsh plugin --profile web add \
-  https://github.com/184647604/dsh-plugins/releases/download/v0.1.10/dsh-bridge-center-0.1.7.tgz
+  https://github.com/184647604/dsh-plugins/releases/download/v0.1.11/dsh-bridge-center-0.1.7.tgz
 
 # 子插件（按需）
 dsh plugin --profile web add \
-  https://github.com/184647604/dsh-plugins/releases/download/v0.1.10/dsh-mcp-admin-0.2.1.tgz
+  https://github.com/184647604/dsh-plugins/releases/download/v0.1.11/dsh-mcp-admin-0.2.1.tgz
 
 dsh plugin --profile web add \
-  https://github.com/184647604/dsh-plugins/releases/download/v0.1.10/dsh-file-transfer-0.2.1.tgz
+  https://github.com/184647604/dsh-plugins/releases/download/v0.1.11/dsh-file-transfer-0.2.2.tgz
 
 dsh plugin --profile web add \
-  https://github.com/184647604/dsh-plugins/releases/download/v0.1.10/dsh-ssh-link-0.1.0.tgz
+  https://github.com/184647604/dsh-plugins/releases/download/v0.1.11/dsh-ssh-link-0.1.1.tgz
 ```
 
-> 上面四条 URL 都指向 `v0.1.10`。**别退回 `v0.1.9`** —— 那个 release 只挂了 3 个
-> tgz，`dsh-ssh-link-0.1.0.tgz` 在它下面不存在。每个 release 必须挂满 4 个，
+> 上面四条 URL 都指向 `v0.1.11`。**别退回 `v0.1.9`** —— 那个 release 只挂了 3 个
+> tgz，`dsh-ssh-link` 在它下面不存在。每个 release 必须挂满 4 个，
 > 详见 `docs/dsh-plugins-release.md` 第二节。
 
 装完**重启一次 `dsh web`**（首次要靠 profile 的 bundle 层把它带起来）。之后的启停/卸载**免重启**。

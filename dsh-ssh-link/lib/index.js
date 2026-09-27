@@ -49,7 +49,24 @@ import {
   generateKey,
   readIdentity,
 } from './identity.js';
-export const name = 'ssh-link';
+/**
+ * 插件名。**必须等于包名/目录名**（`dsh-ssh-link`），不能写成 `ssh-link`。
+ *
+ * 这条约束有两个执行者，两边都会硬拒：
+ *   · App 的「一键安装」脚本：`TermuxCommands.kt` 里那段
+ *     `import(...).then(p => { if (p.default.name !== pkg) process.exit(1) })`
+ *     —— 名字不符直接 `exit 4`，整个插件中心装不上（2026-09 真机踩到）；
+ *   · 管理桥的远程安装：`dsh-bridge-center/lib/index.js` 的 `verifyPluginDir()`，
+ *     同一个条件，注释里明写「与 App 本机安装脚本的校验条件保持一致」。
+ *
+ * 所以这不是风格问题，是**安装期的准入条件**。历史上这里是 `'ssh-link'`，
+ * 唯一后果就是上面那条 `exit 4`。
+ *
+ * 注意：这个名字只是 cordis 的 fiber 名（出现在日志前缀里），**不参与**服务注册
+ * 或路由寻址 —— subagent provider 的名字是另一回事，来自 config 的 `providerName`
+ * （默认 `'ssh'`，preset 里 `provider: ssh` 指的就是它）。别把两者混为一谈。
+ */
+export const name = 'dsh-ssh-link';
 
 /**
  * 硬依赖：**只有**工具与 subagent 注册表。
