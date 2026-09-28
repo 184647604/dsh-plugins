@@ -413,10 +413,45 @@ function upsertPluginInsert(text, id) {
   return `${out ? `${out}\n` : ''}- insert:\n    - id: ${id}\n      name: ${id}\n`;
 }
 
+/**
+ * 按顺序找第一份能解析的守护进程配置。
+ *
+ * **抽成纯函数是为了能被行为级测试覆盖。** 这个 bug 的形状很特别：代码"看起来完全
+ * 正常" —— 它确实读了配置、剥了 BOM、解析出了 token、探测了端口，installed:true
+ * / alive:true 全对 —— 唯独读的是**上一代的那份文件**。正则断言抓不到这种错
+ * （它只能证明"提到了新路径"，不能证明"新路径排在前面"，更不能证明解析出来的是
+ * 新的那份）。把决策抽出来，测试才能喂进两份真实的配置、断言选中的是哪一份。
+ *
+ * @param {string[]} candidates 按优先级排列的路径
+ * @returns {{cfg: object, configPath: string, legacy: boolean}|null}
+ */
+function readSupervisorConfig(candidates) {
+  for (const candidate of candidates) {
+    try {
+      // 和守护进程一样剥 BOM：PS 5.1 的 Set-Content -Encoding UTF8 会写 BOM
+      return {
+        cfg: JSON.parse(readFileSync(candidate, 'utf8').replace(/^\uFEFF/, '')),
+        configPath: candidate,
+        legacy: candidate.endsWith('dsh-supervisor.config.json'),
+      };
+    } catch { /* 试下一个候选 */ }
+  }
+  return null;
+}
+
 // 纯文本 patch 操作的命名导出:仅用于行为级回归测试(见 test/patch-ops.test.mjs)。
 // 均为纯函数,不接触 loader/HTTP,导出不影响 default 插件的形状。
 // safeTargetPath / upsertPluginInsert 同理 —— 前者是安全关键代码,必须能单独测。
-export { findPluginBlock, removePluginEntry, setPluginEnabled, safeTargetPath, upsertPluginInsert };
+// readSupervisorConfig 也是同一理由:它决定读哪一代的配置,而读错就是 401 ——
+// 界面上还一切正常(installed/alive 都对),只有真正去唤醒时才失败。
+export {
+  findPluginBlock,
+  removePluginEntry,
+  setPluginEnabled,
+  safeTargetPath,
+  upsertPluginInsert,
+  readSupervisorConfig,
+};
 
 /**
  * 落盘后校验：这个包真的能 import，且导出形状像个插件。
@@ -583,7 +618,7 @@ export default {
       // 机制说对了，没意识到「不碰 connection 层」= 连认证一起跳过。
       //
       // 实测后果（修复前）：不带任何 cookie 直接 POST /api/center.supervisor
-      // 就能**明文拿到 supervisor token**，进而控制 dsh web 的启停；
+      // 就能**明文拿到 supervisord-center token**，进而控制 dsh web 的启停；
       // /api/plugins.install 等同理（装包会跑 pnpm 生命周期脚本）。全程无需凭据。
       //
       // 所以这里把官方的判定原样搬进来，判定范围与官方 /api 路由完全一致、不多不少：
@@ -1295,32 +1330,65 @@ export default {
     };
 
     /**
-     * 报告 PC 端 supervisor（远程唤醒守护进程）的配置，供手机端引导用。
+     * 报告 PC 端 supervisord-center（远程唤醒守护进程）的配置，供手机端引导用。
      *
-     * **为什么需要这个端点**：App 要在 dsh web 挂掉时直接找 supervisor 说话，
-     * 而那时本插件也没了 —— 所以它充其量只能在**连通时**把 supervisor 的地址和
+     * **为什么需要这个端点**：App 要在 dsh web 挂掉时直接找 supervisord-center
+     * 说话，而那时本插件也没了 —— 所以它充其量只能在**连通时**把它的地址和
      * token 交给 App，让 App 缓存下来备用。没有这一步，用户就得手动把 token 抄进
      * 手机，而那串东西又长又没法记。
      *
      * 只读不写。token 确实敏感，但这个端点只有已认证的 dsh 客户端能访问，
-     * 而 dsh web 本身在同一个 tailnet 上、暴露面比 supervisor 大得多。
+     * 而 dsh web 本身在同一个 tailnet 上、暴露面比它大得多。
+     *
+     * ## 两代配置路径，新的优先（2026-09-28）
+     *
+     * 那个守护进程原名 `dsh-supervisor`，现名 **`supervisord-center`**，是一次
+     * **重写而非改名**：单服务变多服务（`dsh{}` → `services[]`）、监听端口不变，
+     * 但配置路径和认证头名都换了。PC 上实测（2026-09-28）：新服务在跑，而这里
+     * 还在读旧路径，于是**下发的是早已失效的 token** —— App 拿它去打
+     * `/super/login` 得到 401，远程唤醒整条链路是断的，而界面上却显示
+     * `installed:true, alive:true`，看起来一切正常。
+     *
+     * 所以按**新 → 旧**顺序探测，正是官方 `install.ps1` 自己的顺序（它迁移时
+     * 也从旧路径继承 token，避免轮换掉手机上已缓存的凭据）。旧路径保留是因为
+     * 两代可以共存：**还没迁移的机器只有旧那一份**，删掉这个回退等于把它们
+     * 的远程唤醒一次性打断。
      */
     const opCenterSupervisor = async (payload) => {
       const p = payload && typeof payload === 'object' ? payload : {};
-      const configPath = join(DSH_HOME, 'supervisor', 'dsh-supervisor.config.json');
-      let cfg = null;
-      try {
-        // 和 supervisor 一样剥 BOM：PS 5.1 的 Set-Content -Encoding UTF8 会写 BOM
-        cfg = JSON.parse(readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''));
-      } catch { /* 没装 supervisor 就走下面的 installed:false */ }
 
-      if (!cfg || !cfg.token) {
+      // 新路径优先。RUNTIME_DIR 跟着官方走 SUPERVISORD_CENTER_HOME，没设才是默认值 ——
+      // 写死 ~/.supervisord-center 会让「配置到底在哪」变成一个每次都要重新推理的问题。
+      const runtimeDir = process.env.SUPERVISORD_CENTER_HOME ||
+        join(homedir(), '.supervisord-center');
+      const candidates = [
+        process.env.SUPERVISORD_CENTER_CONFIG,
+        join(runtimeDir, 'supervisord-center.config.json'),
+        join(runtimeDir, 'config', 'supervisord-center.config.json'),
+        // 上一代（迁移期仍在的机器走这条）
+        join(DSH_HOME, 'supervisor', 'dsh-supervisor.config.json'),
+      ].filter(Boolean);
+
+      const found = readSupervisorConfig(candidates);
+      if (!found) {
+        return { ok: true, value: { installed: false, configPath: candidates[0] } };
+      }
+      const { cfg, configPath, legacy } = found;
+
+      if (!cfg.token) {
         return { ok: true, value: { installed: false, configPath } };
       }
 
       const port = Number(cfg.port) || 3099;
       const host = cfg.host || '127.0.0.1';
-      const dshWebPort = (cfg.dsh && Number(cfg.dsh.port)) || 3080;
+
+      // dsh web 的端口：新配置在 services[] 里（按 defaultService 找，找不到就取第一个），
+      // 旧配置是扁平的 dsh.port。两代都得认 —— 只认一种会让另一代报出一个错的端口。
+      const services = Array.isArray(cfg.services) ? cfg.services : [];
+      const defaultId = cfg.defaultService || (services[0] && services[0].id);
+      const dshService = services.find((s) => s && s.id === defaultId) || services[0] || null;
+      const dshWebPort = Number(dshService && dshService.port) ||
+        (cfg.dsh && Number(cfg.dsh.port)) || 3080;
 
       // 顺手探一下是否真的在监听：配置在但进程没起来是很常见的情况
       // （比如用户删过进程、或首次安装后还没启动）。
@@ -1348,9 +1416,19 @@ export default {
           installed: true,
           alive,
           configPath,
+          // 认出来是哪一代：App 据此选认证头名，也是排错时最想知道的一件事。
+          // 旧版（dsh-supervisor）认 x-dsh-supervisor-token；新版认
+          // x-supervisord-center-token，两者**互不兼容**，发错头就是 401。
+          flavor: legacy ? 'dsh-supervisor' : 'supervisord-center',
+          // 权威的认证头名。让 App 不必自己按 flavor 分支，也避免以后再加一代时
+          // 两边各写一份判断 —— 这里说发哪个头，App 就发哪个。
+          authHeader: legacy ? 'x-dsh-supervisor-token' : 'x-supervisord-center-token',
           host,
           port,
           dshWebPort,
+          // 多服务版里这个服务自己的 id：App 要走 /services/<id>/restart 时需要它
+          // （旧接口 /restart 只作用于 defaultService，多服务时未必是我们想重启的那个）。
+          dshServiceId: dshService ? String(dshService.id || '') : (legacy ? 'dsh' : ''),
           // App 用它拼 https://<host>/super
           path: '/super',
           token: cfg.token,

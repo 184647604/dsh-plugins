@@ -15,7 +15,7 @@
  * 这里刻意**不用** `webServer.register({kind:'exact'})`。本仓库在 2026-09 刚出过
  * 一次事故:exact 路由先于 client-connection 的 `kind:'prefix'` `/api` 路由匹配,
  * 而认证恰恰挂在后者 handler 的第一行 —— 于是插件路由全部裸奔(未授权就能装插件、
- * 读 supervisor token)。
+ * 读 supervisord-center token)。
  *
  * `ctx.connection.fetch.register()` 注册的路由**在已认证的共享 handler 内部**,
  * 认证由 connection 服务统一做。所以这个插件在结构上就不可能重现那个洞 ——
